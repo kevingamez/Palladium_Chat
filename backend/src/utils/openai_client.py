@@ -19,6 +19,7 @@ class OpenAIConversation:
         self.conversation_id = conversation_id
         self.model = model
         self.message_history = []
+        self.metadata = {}  # Para almacenar referencias a recursos externos
     
     def add_message(self, role: str, content: str):
         """Add a message to the conversation history"""
