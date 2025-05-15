@@ -7,6 +7,8 @@ from fastapi.responses import StreamingResponse
 from src.utils.openai_client import create_conversation, OpenAIConversation
 from src.schemas.chat import ChatRequest
 from dotenv import load_dotenv
+from src.utils.google_sheets_client import get_sheets_client
+import asyncio
 
 load_dotenv()
 
@@ -19,6 +21,24 @@ _CONVERSATIONS: Dict[str, OpenAIConversation] = {}
 async def chat_stream(req: ChatRequest):
     if req.conversation_id not in _CONVERSATIONS:
         _CONVERSATIONS[req.conversation_id] = create_conversation(req.conversation_id)
+
+        # Cargar datos de la hoja como contexto inicial
+        try:
+            client = get_sheets_client()
+            tracker_data = client.read_integration_tracker()
+
+            # Crear un mensaje de sistema con la información
+            system_message = "Información del proyecto de integración:\n\n"
+
+            for item in tracker_data:
+                if all(key in item for key in ["Integration Area", "Completion Status", "% Complete"]):
+                    system_message += f"- {item['Integration Area']}: {item['Completion Status']} ({item['% Complete']}% completado)\n"
+
+            # Añadir el mensaje de sistema a la conversación
+            _CONVERSATIONS[req.conversation_id].add_message("system", system_message)
+
+        except Exception as e:
+            print(f"Error al cargar datos iniciales: {str(e)}")
 
     conversation = _CONVERSATIONS[req.conversation_id]
 
@@ -37,9 +57,23 @@ async def chat_stream(req: ChatRequest):
     async def event_generator():
         assistant_content = ""
         stream = await stream_coroutine
+
+        # Flag para detectar si la respuesta contiene una acción
+        action_detected = False
+
         async for chunk in stream:
             token = chunk.choices[0].delta.content or ""
             assistant_content += token
+
+            # Revisar si el contenido acumulado contiene un patrón de acción para crear una hoja
+            if not action_detected and "[ACTION] Create" in assistant_content and "sheet" in assistant_content.lower():
+                action_detected = True
+
+                # Procesamiento asíncrono para no bloquear el stream
+                asyncio.create_task(
+                    process_sheet_creation(assistant_content, req.conversation_id, conversation)
+                )
+
             yield f"data: {token}\n\n"
 
         conversation.add_message("assistant", assistant_content)

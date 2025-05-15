@@ -6,7 +6,7 @@ import {
   } from '@tanstack/react-router';
   import { useEffect } from 'react';
   import ChatWindow from '../components/ChatWindow/ChatWindow';
-
+  import NewChatButton from '../components/NewChatButton/NewChatButton';
   const NavigateToDefaultChat = () => {
     const navigate = useNavigate();
 
@@ -62,9 +62,11 @@ import {
     return (
       <div className="flex h-screen">
         <ChatWindow />
+
         <div className="flex-1 bg-zinc-900 text-white">
+          <NewChatButton onClick={() => {NavigateToDefaultChat()}} />
           <Outlet />
-          {/* <ChatWindow /> */}
+
         </div>
       </div>
     );
