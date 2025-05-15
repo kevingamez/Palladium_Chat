@@ -10,6 +10,8 @@ from src.schemas.chat import ChatRequest
 from dotenv import load_dotenv
 from src.utils.google_sheets_client import get_sheets_client
 import re
+import PyPDF2
+import io
 
 load_dotenv()
 
@@ -171,12 +173,19 @@ async def chat_stream_with_files(req: ChatRequest):
         for file in files:
             file_path = os.path.join(upload_dir, file)
 
-            try:
-                with open(file_path, "r") as f:
-                    content = f.read()
-                    file_contents.append(f"Content of {file}:\n{content}")
-            except:
-                file_contents.append(f"File uploaded: {file}")
+            if file.lower().endswith('.pdf'):
+                try:
+                    text = extract_text_from_pdf(file_path)
+                    file_contents.append(f"Content of {file}:\n{text}")
+                except Exception as e:
+                    file_contents.append(f"Error extracting text from PDF {file}: {str(e)}")
+            else:
+                try:
+                    with open(file_path, "r") as f:
+                        content = f.read()
+                        file_contents.append(f"Content of {file}:\n{content}")
+                except:
+                    file_contents.append(f"File uploaded: {file}")
 
     if file_contents:
         file_context = "\n\n".join(file_contents)
@@ -262,3 +271,11 @@ async def process_sheet_creation_sync(content, conversation_id):
         conversation.metadata['spreadsheet_id'] = result['spreadsheet_id']
 
     return result
+
+def extract_text_from_pdf(file_path):
+    with open(file_path, "rb") as file:
+        reader = PyPDF2.PdfReader(file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text

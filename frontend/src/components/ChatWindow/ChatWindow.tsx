@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import MessageBubble from '../MessageBubble/MessageBubble';
 import MessageInput from '../MessageInput/MessageInput';
 import './ChatWindow.css';
+import { uploadFilesChatUploadPost, chatStreamWithFilesChatStreamWithFilesPost } from '../../api/sdk.gen';
 
 const api = {
   getMessages: async (chatId: string) => {
@@ -10,10 +11,32 @@ const api = {
     return stored ? JSON.parse(stored) : [];
   },
 
-  sendMessageStream: async ({ chatId, text }: { chatId: string; text: string }) => {
+  sendMessageStream: async ({ chatId, text, files }: { chatId: string; text: string; files?: File[] }) => {
     const simulateStream = async function* () {
       try {
-        const response = await fetch('http://localhost:8000/chat/stream', {
+        // Si hay archivos, primero subir los archivos
+        if (files && files.length > 0) {
+          const formData = new FormData();
+          formData.append('conversation_id', chatId);
+          files.forEach(file => {
+            formData.append('files', file);
+          });
+
+          // Usar el endpoint de carga de archivos
+          await uploadFilesChatUploadPost({
+            body: {
+              conversation_id: chatId,
+              files
+            }
+          });
+        }
+
+        // Elegir el endpoint correcto basado en si hay archivos
+        const endpoint = files && files.length > 0
+          ? 'http://localhost:8000/chat/stream-with-files'
+          : 'http://localhost:8000/chat/stream';
+
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -40,12 +63,8 @@ const api = {
             }
           }
         } else {
-          // Respuesta fallback para desarrollo
-          const words = "Esta es una respuesta simulada para el clon de ChatGPT. En producción, conectaría con tu backend real para obtener respuestas generadas por IA.".split(' ');
-          for (const word of words) {
-            yield word + ' ';
-            await new Promise(r => setTimeout(r, 100));
-          }
+          // Respuesta fallback
+          yield 'Error al procesar tu mensaje.';
         }
       } catch (error) {
         console.error('Error en streaming:', error);
@@ -89,15 +108,23 @@ export default function ChatWindow() {
 
   // Enviar mensaje (y recibir respuesta en streaming)
   const sendMsg = useMutation({
-    mutationFn: ({ text }: { text: string }) => {
-      // Solo proceder si hay un chatId válido
+    mutationFn: ({ text, files }: { text: string, files?: File[] }) => {
       if (!chatId) return Promise.resolve(null);
 
       const currentMessages = qc.getQueryData(['messages', chatId]) as any[] || [];
-      const updatedMessages = [...currentMessages, { role: 'user', content: text }];
+
+      // Si hay archivos, añade una indicación visual
+      let updatedMessages = [...currentMessages, { role: 'user', content: text }];
+      if (files && files.length > 0) {
+        updatedMessages.push({
+          role: 'system',
+          content: `Archivos adjuntos: ${files.map(f => f.name).join(', ')}`
+        });
+      }
+
       localStorage.setItem(`chat_${chatId}`, JSON.stringify(updatedMessages));
 
-      return api.sendMessageStream({ chatId, text });
+      return api.sendMessageStream({ chatId, text, files });
     },
     onMutate: async ({ text }) => {
       await qc.cancelQueries({ queryKey: ['messages', chatId] });
@@ -171,7 +198,14 @@ export default function ChatWindow() {
           ) : (
             <div className="message-container">
               {messages.map((message: any, i: number) => (
-                <MessageBubble key={i} {...message} />
+                <MessageBubble
+                  key={i}
+                  {...message}
+                  // Detecta si es un mensaje de sistema sobre archivos
+                  files={message.role === 'system' && message.content.startsWith('User uploaded files:')
+                    ? message.content.replace('User uploaded files:', '').split(',').map((f: string) => f.trim())
+                    : undefined}
+                />
               ))}
               <div ref={messagesEndRef} />
             </div>
@@ -182,7 +216,7 @@ export default function ChatWindow() {
       <div className="input-container">
         <div className="input-wrapper">
           <MessageInput
-            onSend={(text) => sendMsg.mutate({ text })}
+            onSend={(text, files) => sendMsg.mutate({ text, files })}
             disabled={sendMsg.isPending}
           />
         </div>

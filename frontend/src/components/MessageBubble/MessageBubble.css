@@ -143,3 +143,71 @@
   .message-bubble.user .markdown-content a {
     color: #3b82f6;
   }
+
+  .file-upload-message {
+    width: 100%;
+    padding: 0.5rem 0;
+    display: flex;
+    justify-content: center;
+  }
+
+  .files-container {
+    background-color: rgba(0, 0, 0, 0.05);
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    max-width: 60%;
+  }
+
+  .file-attachment {
+    display: flex;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+  }
+
+  .file-icon {
+    margin-right: 0.5rem;
+    color: #555;
+  }
+
+  .files-message {
+    width: 100%;
+    margin: 10px 0;
+    display: flex;
+    justify-content: center;
+  }
+
+  .files-indicator {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    padding: 10px;
+    max-width: 80%;
+  }
+
+  .files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .uploaded-file {
+    display: flex;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.05);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+
+  .uploaded-file .file-icon {
+    margin-right: 8px;
+  }
+
+  .uploaded-file .file-name {
+    font-weight: 500;
+  }

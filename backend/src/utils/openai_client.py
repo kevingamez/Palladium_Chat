@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 load_dotenv()
 
 class OpenAIConversation:
-    def __init__(self, conversation_id=None, model="gpt-4o-mini"):
+    def __init__(self, conversation_id=None, model="gpt-4-turbo-2024-04-09"):
         """
         Initialize a new conversation with OpenAI
         
@@ -49,5 +49,5 @@ class OpenAIConversation:
         return response
 
 # Factory function to create new conversations
-def create_conversation(conversation_id=None, model="gpt-4o"):
+def create_conversation(conversation_id=None, model="gpt-4-turbo-2024-04-09"):
     return OpenAIConversation(conversation_id, model)
