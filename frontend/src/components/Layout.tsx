@@ -1,9 +1,45 @@
 import React from 'react';
+import {
+  Outlet,
+  createRootRoute,
+  createRoute,
+} from '@tanstack/react-router';
+import ChatSidebar from './ChatSideBar/ChatSidebar';
+import ChatWindow from './ChatWindow/ChatWindow';
+// Ruta raíz
+export const Route = createRootRoute({
+  component: RootLayout,
+});
 
-export default function Layout({ children }: { children: React.ReactNode }) {
+// Ruta índice
+const indexRoute = createRoute({
+  getParentRoute: () => Route,
+  path: '/',
+  component: () => <Outlet />,
+});
+
+// Ruta de chat
+const chatRoute = createRoute({
+  getParentRoute: () => Route,
+  path: '/chat/$chatId',
+  component: () => <Outlet />,
+});
+
+// Definir árbol de rutas
+export const routeTree = Route.addChildren([
+  indexRoute,
+  chatRoute,
+]);
+
+// Componente de Layout principal
+export default function RootLayout() {
   return (
-    <div className="min-h-screen">
-        {children}
+    <div className="flex h-screen bg-[#343541] overflow-hidden">
+      <ChatSidebar />
+      <main className="flex-1 relative overflow-hidden">
+        <ChatWindow />
+        <Outlet />
+      </main>
     </div>
   );
 }

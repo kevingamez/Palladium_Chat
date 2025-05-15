@@ -1,9 +1,7 @@
 from __future__ import annotations
-
 from typing import Dict, List
 import os
 import shutil
-
 from fastapi import APIRouter, HTTPException, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from src.utils.openai_client import create_conversation, OpenAIConversation
@@ -14,14 +12,11 @@ load_dotenv()
 
 router = APIRouter(prefix="/chat", tags=["OpenAI Chat"])
 
-# ----- almacenamiento en memoria (demo) --------------------------------------
-# En producción usa Redis, DB o capa de estado propia
 _CONVERSATIONS: Dict[str, OpenAIConversation] = {}
 
 
 @router.post("/stream")
 async def chat_stream(req: ChatRequest):
-    """Envía el historial a OpenAI y transmite la respuesta token a token."""
     if req.conversation_id not in _CONVERSATIONS:
         _CONVERSATIONS[req.conversation_id] = create_conversation(req.conversation_id)
 
