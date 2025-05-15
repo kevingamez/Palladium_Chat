@@ -2,13 +2,14 @@ from __future__ import annotations
 from typing import Dict, List
 import os
 import shutil
+import asyncio
 from fastapi import APIRouter, HTTPException, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from src.utils.openai_client import create_conversation, OpenAIConversation
 from src.schemas.chat import ChatRequest
 from dotenv import load_dotenv
 from src.utils.google_sheets_client import get_sheets_client
-import asyncio
+import re
 
 load_dotenv()
 
@@ -22,25 +23,48 @@ async def chat_stream(req: ChatRequest):
     if req.conversation_id not in _CONVERSATIONS:
         _CONVERSATIONS[req.conversation_id] = create_conversation(req.conversation_id)
 
-        # Cargar datos de la hoja como contexto inicial
         try:
             client = get_sheets_client()
             tracker_data = client.read_integration_tracker()
 
-            # Crear un mensaje de sistema con la información
             system_message = "Información del proyecto de integración:\n\n"
 
             for item in tracker_data:
                 if all(key in item for key in ["Integration Area", "Completion Status", "% Complete"]):
                     system_message += f"- {item['Integration Area']}: {item['Completion Status']} ({item['% Complete']}% completado)\n"
 
-            # Añadir el mensaje de sistema a la conversación
             _CONVERSATIONS[req.conversation_id].add_message("system", system_message)
 
         except Exception as e:
             print(f"Error al cargar datos iniciales: {str(e)}")
 
     conversation = _CONVERSATIONS[req.conversation_id]
+
+    initial_system_message = """
+    When you need to create a spreadsheet, include the following structure in your response:
+
+    [ACTION] Create a spreadsheet
+    Title: [suggested name for the sheet]
+    Headers: [list of suggested headers]
+    [/ACTION]
+
+    For example:
+
+    [ACTION] Create a spreadsheet
+    Title: Vendor Consolidation Tracker
+    Headers:
+    - Vendor Name
+    - Services Provided
+    - Contract Terms
+    - Compliance Info
+    - Usage Criticality
+    - Status
+    [/ACTION]
+
+    I will handle creating the sheet and provide you with the link.
+    """
+
+    conversation.add_message("system", initial_system_message)
 
     conversation.add_message("user", req.content)
 
@@ -57,53 +81,72 @@ async def chat_stream(req: ChatRequest):
     async def event_generator():
         assistant_content = ""
         stream = await stream_coroutine
-
-        # Flag para detectar si la respuesta contiene una acción
-        action_detected = False
+        action_mode = False
+        action_content = ""
+        buffer = ""
 
         async for chunk in stream:
             token = chunk.choices[0].delta.content or ""
             assistant_content += token
 
-            # Revisar si el contenido acumulado contiene un patrón de acción para crear una hoja
-            if not action_detected and "[ACTION] Create" in assistant_content and "sheet" in assistant_content.lower():
-                action_detected = True
+            if not action_mode and "[ACTION]" in (buffer + token):
+                action_mode = True
+                action_content = ""
+                buffer = ""
+                continue
 
-                # Procesamiento asíncrono para no bloquear el stream
-                asyncio.create_task(
-                    process_sheet_creation(assistant_content, req.conversation_id, conversation)
-                )
+            if action_mode:
+                action_content += token
 
-            yield f"data: {token}\n\n"
+                if "[/ACTION]" in action_content:
+                    action_content = action_content.split("[/ACTION]")[0]
 
-        conversation.add_message("assistant", assistant_content)
+                    result = await process_sheet_creation_sync(action_content, req.conversation_id)
+
+                    natural_response = f"I've created a spreadsheet with all the columns you requested. You can access it here: {result['url']}"
+                    yield f"data: {natural_response}\n\n"
+
+                    action_mode = False
+
+                continue
+
+            buffer += token
+            if len(buffer) > 8:
+                yield f"data: {buffer[0]}\n\n"
+                buffer = buffer[1:]
+
+        if buffer and not action_mode:
+            yield f"data: {buffer}\n\n"
+
+        final_content = assistant_content
+        if "[ACTION]" in assistant_content and "[/ACTION]" in assistant_content:
+            parts = assistant_content.split("[ACTION]")
+            post_parts = parts[1].split("[/ACTION]")
+            final_content = parts[0] + natural_response + (post_parts[1] if len(post_parts) > 1 else "")
+
+        conversation.add_message("assistant", final_content)
 
     return StreamingResponse(event_generator(),
                              media_type="text/event-stream")
 
-# Add a new endpoint for file uploads
 @router.post("/upload")
 async def upload_files(
     conversation_id: str = Form(...),
     files: List[UploadFile] = File(...)
 ):
-    # Create upload directory if it doesn't exist
     upload_dir = os.path.join("uploads", conversation_id)
     os.makedirs(upload_dir, exist_ok=True)
 
     file_paths = []
     for file in files:
-        # Save file to disk
         file_path = os.path.join(upload_dir, file.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         file_paths.append(file_path)
 
-    # Add file references to conversation history
     if conversation_id in _CONVERSATIONS:
         conversation = _CONVERSATIONS[conversation_id]
         file_names = [file.filename for file in files]
-        # Add system message noting file uploads
         conversation.add_message(
             "system",
             f"User uploaded files: {', '.join(file_names)}"
@@ -111,7 +154,6 @@ async def upload_files(
 
     return {"uploaded_files": [file.filename for file in files]}
 
-# Modify your chat endpoint to handle files
 @router.post("/stream-with-files")
 async def chat_stream_with_files(req: ChatRequest):
     """Chat with file context if files have been uploaded"""
@@ -121,7 +163,6 @@ async def chat_stream_with_files(req: ChatRequest):
     conversation = _CONVERSATIONS[req.conversation_id]
     conversation.add_message("user", req.content)
 
-    # Check for uploaded files
     upload_dir = os.path.join("uploads", req.conversation_id)
     file_contents = []
 
@@ -129,27 +170,20 @@ async def chat_stream_with_files(req: ChatRequest):
         files = os.listdir(upload_dir)
         for file in files:
             file_path = os.path.join(upload_dir, file)
-            # For simplicity, assuming text files - in production,
-            # you'd need to handle different file types
+
             try:
                 with open(file_path, "r") as f:
                     content = f.read()
                     file_contents.append(f"Content of {file}:\n{content}")
             except:
-                # For binary files, just mention they exist
                 file_contents.append(f"File uploaded: {file}")
 
-    # Add file contents as context if available
     if file_contents:
         file_context = "\n\n".join(file_contents)
         context_message = f"The user has uploaded the following files:\n{file_context}"
-        # Two options:
-        # 1. Add as system message to conversation
         conversation.add_message("system", context_message)
-        # OR 2. Append to the latest user message (if files are directly related)
-        # conversation.message_history[-1]["content"] += f"\n\n{context_message}"
 
-    # Rest of your code for streaming the response remains the same...
+
     try:
         stream_coroutine = conversation.client.chat.completions.create(
             model=conversation.model,
@@ -171,3 +205,60 @@ async def chat_stream_with_files(req: ChatRequest):
         conversation.add_message("assistant", assistant_content)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+async def process_sheet_creation(content, conversation_id, conversation):
+    try:
+
+        title_match = re.search(r'title[:\s]+["\'"]?(.*?)["\'"]?[\s\n]', content, re.IGNORECASE)
+        title = title_match.group(1) if title_match else "Vendor Inventory"
+
+        headers_section = re.search(r'headers?[:\s]+(.*?)(?:\n\n|\[\/ACTION\]|$)', content, re.IGNORECASE | re.DOTALL)
+
+        if headers_section:
+            headers_text = headers_section.group(1)
+            headers = re.findall(r'-\s+(.*?)(?:\n|$)', headers_text)
+
+            if not headers:
+                headers = [h.strip() for h in re.split(r'[,\n]', headers_text) if h.strip()]
+        else:
+            headers = ["Vendor Name", "Services Provided", "Contract Terms",
+                      "Compliance Info", "Usage Criticality", "Status"]
+
+        client = get_sheets_client()
+        result = client.create_sheet(title, headers)
+
+        natural_response = f"I've created a {title} spreadsheet with all the columns you need. You can access it here: {result['url']}"
+
+        conversation.add_message("assistant", natural_response)
+
+    except Exception as e:
+        error_message = f"I couldn't create the spreadsheet: {str(e)}"
+        conversation.add_message("assistant", error_message)
+
+async def process_sheet_creation_sync(content, conversation_id):
+
+
+    title_match = re.search(r'title[:\s]+["\'"]?(.*?)["\'"]?[\s\n]', content, re.IGNORECASE)
+    title = title_match.group(1) if title_match else "Vendor Inventory"
+
+    headers_section = re.search(r'headers?[:\s]+(.*?)(?:\n\n|\[\/ACTION\]|$)', content, re.IGNORECASE | re.DOTALL)
+
+    if headers_section:
+        headers_text = headers_section.group(1)
+        headers = re.findall(r'-\s+(.*?)(?:\n|$)', headers_text)
+        if not headers:
+            headers = [h.strip() for h in re.split(r'[,\n]', headers_text) if h.strip()]
+    else:
+        headers = ["Vendor Name", "Services Provided", "Contract Terms",
+                 "Compliance Info", "Usage Criticality", "Status"]
+
+    client = get_sheets_client()
+    result = client.create_sheet(title, headers)
+
+    if conversation_id in _CONVERSATIONS:
+        conversation = _CONVERSATIONS[conversation_id]
+        if not hasattr(conversation, 'metadata'):
+            conversation.metadata = {}
+        conversation.metadata['spreadsheet_id'] = result['spreadsheet_id']
+
+    return result
