@@ -5,7 +5,7 @@ from src.models.chat import Chat
 from src.db import get_session
 from src.services.google_sheets import create_vendor_sheet
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional, Any
 from src.utils.google_sheets_client import get_sheets_client
 
 router = APIRouter(prefix="/sheets", tags=["Google Sheets"])
@@ -73,5 +73,59 @@ async def get_integration_tracker():
             "success": True,
             "data": tracker_data
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class RowUpdateRequest(BaseModel):
+    spreadsheet_id: str
+    sheet_name: str = "Sheet1"
+    row_index: Optional[int] = None  # Si es None, añade una nueva fila
+    values: List[Any]
+
+class ColumnAddRequest(BaseModel):
+    spreadsheet_id: str
+    sheet_name: str = "Sheet1"
+    column_name: str
+
+@router.post("/rows/add")
+async def add_row(request: RowUpdateRequest):
+    try:
+        client = get_sheets_client()
+        result = client.add_row(
+            request.spreadsheet_id,
+            request.sheet_name,
+            request.values
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/rows/update")
+async def update_row(request: RowUpdateRequest):
+    if request.row_index is None:
+        raise HTTPException(status_code=400, detail="Row index is required for updates")
+
+    try:
+        client = get_sheets_client()
+        result = client.update_row(
+            request.spreadsheet_id,
+            request.sheet_name,
+            request.row_index,
+            request.values
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/columns/add")
+async def add_column(request: ColumnAddRequest):
+    try:
+        client = get_sheets_client()
+        result = client.add_column(
+            request.spreadsheet_id,
+            request.sheet_name,
+            request.column_name
+        )
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

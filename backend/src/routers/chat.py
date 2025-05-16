@@ -1,17 +1,16 @@
 from __future__ import annotations
-from typing import Dict, List
+from typing import Dict, List, Any
 import os
 import shutil
 import asyncio
+import json
 from fastapi import APIRouter, HTTPException, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from src.utils.openai_client import create_conversation, OpenAIConversation
 from src.schemas.chat import ChatRequest
 from dotenv import load_dotenv
 from src.utils.google_sheets_client import get_sheets_client
-import re
 import PyPDF2
-import io
 
 load_dotenv()
 
@@ -19,6 +18,123 @@ router = APIRouter(prefix="/chat", tags=["OpenAI Chat"])
 
 _CONVERSATIONS: Dict[str, OpenAIConversation] = {}
 
+# Define the function specifications for OpenAI function calling
+SHEETS_FUNCTIONS = [
+    {
+        "name": "create_spreadsheet",
+        "description": "Create a new Google Sheets spreadsheet with specified title and headers",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Title for the new spreadsheet"
+                },
+                "headers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Column headers for the spreadsheet"
+                }
+            },
+            "required": ["title", "headers"]
+        }
+    },
+    {
+        "name": "add_row",
+        "description": "Add a new row to an existing spreadsheet",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {
+                    "type": "string",
+                    "description": "ID of the Google spreadsheet"
+                },
+                "sheet_name": {
+                    "type": "string",
+                    "description": "Name of the sheet to modify",
+                    "default": "Sheet1"
+                },
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Values to add as a new row"
+                }
+            },
+            "required": ["spreadsheet_id", "values"]
+        }
+    },
+    {
+        "name": "update_row",
+        "description": "Update values in a specific row of a spreadsheet",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {
+                    "type": "string",
+                    "description": "ID of the Google spreadsheet"
+                },
+                "sheet_name": {
+                    "type": "string",
+                    "description": "Name of the sheet to modify",
+                    "default": "Sheet1"
+                },
+                "row_index": {
+                    "type": "integer",
+                    "description": "Index of the row to update (1-based)"
+                },
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "New values for the row"
+                }
+            },
+            "required": ["spreadsheet_id", "row_index", "values"]
+        }
+    },
+    {
+        "name": "add_column",
+        "description": "Add a new column to an existing spreadsheet",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {
+                    "type": "string",
+                    "description": "ID of the Google spreadsheet"
+                },
+                "sheet_name": {
+                    "type": "string",
+                    "description": "Name of the sheet to modify",
+                    "default": "Sheet1"
+                },
+                "column_name": {
+                    "type": "string",
+                    "description": "Name for the new column header"
+                }
+            },
+            "required": ["spreadsheet_id", "column_name"]
+        }
+    },
+    {
+        "name": "get_spreadsheet_link",
+        "description": "Get a link to the current spreadsheet",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {
+                    "type": "string",
+                    "description": "ID of the Google spreadsheet"
+                }
+            },
+            "required": ["spreadsheet_id"]
+        }
+    }
+]
 
 @router.post("/stream")
 async def chat_stream(req: ChatRequest):
@@ -42,39 +158,24 @@ async def chat_stream(req: ChatRequest):
 
     conversation = _CONVERSATIONS[req.conversation_id]
 
+    # Provide context about sheets before generating a response
+    await fetch_sheets_info(req.conversation_id)
+
     initial_system_message = """
-    When you need to create a spreadsheet, include the following structure in your response:
+    You can create or modify Google Sheets by using the available functions.
 
-    [ACTION] Create a spreadsheet
-    Title: [suggested name for the sheet]
-    Headers: [list of suggested headers]
-    [/ACTION]
-
-    For example:
-
-    [ACTION] Create a spreadsheet
-    Title: Vendor Consolidation Tracker
-    Headers:
-    - Vendor Name
-    - Services Provided
-    - Contract Terms
-    - Compliance Info
-    - Usage Criticality
-    - Status
-    [/ACTION]
-
-    I will handle creating the sheet and provide you with the link.
+    For spreadsheet operations, use the appropriate function rather than describing the action in text.
+    When a user needs a spreadsheet, create one with appropriate headers based on their requirements.
     """
 
     conversation.add_message("system", initial_system_message)
-
     conversation.add_message("user", req.content)
 
     try:
         stream_coroutine = conversation.client.chat.completions.create(
             model=conversation.model,
-            messages=[{"role": m["role"], "content": m["content"]}
-                      for m in conversation.message_history],
+            messages=[{"role": m["role"], "content": m["content"]} for m in conversation.message_history],
+            functions=SHEETS_FUNCTIONS,  # Use 'functions' not 'tools'
             stream=True,
         )
     except Exception as e:
@@ -82,54 +183,137 @@ async def chat_stream(req: ChatRequest):
 
     async def event_generator():
         assistant_content = ""
+        function_call_data = {}
+        current_function = None
+
         stream = await stream_coroutine
-        action_mode = False
-        action_content = ""
-        buffer = ""
 
         async for chunk in stream:
-            token = chunk.choices[0].delta.content or ""
-            assistant_content += token
+            delta = chunk.choices[0].delta
 
-            if not action_mode and "[ACTION]" in (buffer + token):
-                action_mode = True
-                action_content = ""
-                buffer = ""
-                continue
+            # Handle function calling chunks
+            if delta.get("function_call"):
+                fc = delta.function_call
 
-            if action_mode:
-                action_content += token
+                # Start of a new function call
+                if hasattr(fc, "name") and fc.name:
+                    current_function = fc.name
+                    function_call_data = {"name": current_function, "arguments": ""}
 
-                if "[/ACTION]" in action_content:
-                    action_content = action_content.split("[/ACTION]")[0]
+                # Accumulate function arguments
+                if hasattr(fc, "arguments") and fc.arguments:
+                    function_call_data["arguments"] += fc.arguments
 
-                    result = await process_sheet_creation_sync(action_content, req.conversation_id)
+            # Handle normal content
+            elif delta.get("content") is not None:
+                token = delta.content
+                assistant_content += token
+                yield f"data: {token}\n\n"
 
-                    natural_response = f"I've created a spreadsheet with all the columns you requested. You can access it here: {result['url']}"
-                    yield f"data: {natural_response}\n\n"
+            # End of function call - process it
+            if chunk.choices[0].finish_reason == "function_call":
+                raw_args = function_call_data["arguments"]
+                print("RAW ARGS JSON:", raw_args)  # Debug log
+                try:
+                    # Just validate JSON but use the raw string for the function call
+                    json.loads(raw_args)
+                    result = await process_function_call(
+                        function_call_data["name"],
+                        raw_args,
+                        req.conversation_id
+                    )
 
-                    action_mode = False
+                    # Send function result to the user
+                    if result:
+                        yield f"data: {result}\n\n"
+                        assistant_content += result
+                except json.JSONDecodeError as e:
+                    error_msg = f"Error parsing JSON args: {str(e)} in {raw_args}"
+                    print(error_msg)  # Log the error
+                    yield f"data: {error_msg}\n\n"
+                except Exception as e:
+                    error_msg = f"Error executing function: {str(e)}"
+                    print(error_msg)  # Log the error
+                    yield f"data: {error_msg}\n\n"
 
-                continue
+        conversation.add_message("assistant", assistant_content)
 
-            buffer += token
-            if len(buffer) > 8:
-                yield f"data: {buffer[0]}\n\n"
-                buffer = buffer[1:]
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-        if buffer and not action_mode:
-            yield f"data: {buffer}\n\n"
+async def process_function_call(function_name: str, arguments_json: str, conversation_id: str) -> str:
+    """Process function calls from OpenAI and execute the appropriate actions"""
+    try:
+        # Print for debugging
+        print(f"Processing function: {function_name}")
+        print(f"Arguments JSON: {arguments_json}")
 
-        final_content = assistant_content
-        if "[ACTION]" in assistant_content and "[/ACTION]" in assistant_content:
-            parts = assistant_content.split("[ACTION]")
-            post_parts = parts[1].split("[/ACTION]")
-            final_content = parts[0] + natural_response + (post_parts[1] if len(post_parts) > 1 else "")
+        # Parse JSON arguments
+        args = json.loads(arguments_json)
 
-        conversation.add_message("assistant", final_content)
+        client = get_sheets_client()
+        conversation = _CONVERSATIONS.get(conversation_id)
 
-    return StreamingResponse(event_generator(),
-                             media_type="text/event-stream")
+        if function_name == "create_spreadsheet":
+            title = args.get("title", "Vendor Inventory")
+            headers = args.get("headers", ["Vendor Name", "Services Provided", "Contract Terms",
+                               "Compliance Info", "Usage Criticality", "Status"])
+
+            result = client.create_sheet(title, headers)
+
+            if conversation:
+                if not hasattr(conversation, 'metadata'):
+                    conversation.metadata = {}
+                conversation.metadata['spreadsheet_id'] = result['spreadsheet_id']
+
+            return f"I've created a {title} spreadsheet with all the columns you need. You can access it here: {result['url']}"
+
+        elif function_name == "add_row":
+            spreadsheet_id = args.get("spreadsheet_id")
+            sheet_name = args.get("sheet_name", "Sheet1")
+            values = args.get("values", [])
+
+            result = client.add_row(spreadsheet_id, sheet_name, values)
+
+            if result and result.get('success', False):
+                return f"I've added a new row to your spreadsheet with the values you provided."
+            else:
+                return "I couldn't add a row to the spreadsheet. Please check the parameters and try again."
+
+        elif function_name == "update_row":
+            spreadsheet_id = args.get("spreadsheet_id")
+            sheet_name = args.get("sheet_name", "Sheet1")
+            row_index = args.get("row_index")
+            values = args.get("values", [])
+
+            result = client.update_row(spreadsheet_id, sheet_name, row_index, values)
+
+            if result and result.get('success', False):
+                return f"I've updated row {row_index} in your spreadsheet with the new values."
+            else:
+                return "I couldn't update the spreadsheet row. Please check the parameters and try again."
+
+        elif function_name == "add_column":
+            spreadsheet_id = args.get("spreadsheet_id")
+            sheet_name = args.get("sheet_name", "Sheet1")
+            column_name = args.get("column_name")
+
+            result = client.add_column(spreadsheet_id, sheet_name, column_name)
+
+            if result and result.get('success', False):
+                return f"I've added a new column '{column_name}' to your spreadsheet."
+            else:
+                return "I couldn't add a column to the spreadsheet. Please check the parameters and try again."
+
+        elif function_name == "get_spreadsheet_link":
+            spreadsheet_id = args.get("spreadsheet_id")
+            sheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+            return f"Here's the link to your spreadsheet: {sheet_url}"
+
+        return "The requested function is not supported."
+
+    except Exception as e:
+        print(f"Function error: {str(e)}")
+        return f"Error processing function call: {str(e)}"
 
 @router.post("/upload")
 async def upload_files(
@@ -192,12 +376,11 @@ async def chat_stream_with_files(req: ChatRequest):
         context_message = f"The user has uploaded the following files:\n{file_context}"
         conversation.add_message("system", context_message)
 
-
     try:
         stream_coroutine = conversation.client.chat.completions.create(
             model=conversation.model,
-            messages=[{"role": m["role"], "content": m["content"]}
-                     for m in conversation.message_history],
+            messages=[{"role": m["role"], "content": m["content"]} for m in conversation.message_history],
+            functions=SHEETS_FUNCTIONS,  # Use 'functions' not 'tools'
             stream=True,
         )
     except Exception as e:
@@ -205,72 +388,62 @@ async def chat_stream_with_files(req: ChatRequest):
 
     async def event_generator():
         assistant_content = ""
+        function_call_data = {}
+        current_function = None
+
         stream = await stream_coroutine
+
         async for chunk in stream:
-            token = chunk.choices[0].delta.content or ""
-            assistant_content += token
-            yield f"data: {token}\n\n"
+            delta = chunk.choices[0].delta
+
+            # Handle function calling chunks
+            if delta.get("function_call"):
+                fc = delta.function_call
+
+                # Start of a new function call
+                if hasattr(fc, "name") and fc.name:
+                    current_function = fc.name
+                    function_call_data = {"name": current_function, "arguments": ""}
+
+                # Accumulate function arguments
+                if hasattr(fc, "arguments") and fc.arguments:
+                    function_call_data["arguments"] += fc.arguments
+
+            # Handle normal content
+            elif delta.get("content") is not None:
+                token = delta.content
+                assistant_content += token
+                yield f"data: {token}\n\n"
+
+            # End of function call - process it
+            if chunk.choices[0].finish_reason == "function_call":
+                raw_args = function_call_data["arguments"]
+                print("RAW ARGS JSON:", raw_args)  # Debug log
+                try:
+                    # Validate JSON but use the raw string for processing
+                    json.loads(raw_args)
+                    result = await process_function_call(
+                        function_call_data["name"],
+                        raw_args,
+                        req.conversation_id
+                    )
+
+                    # Send function result to the user
+                    if result:
+                        yield f"data: {result}\n\n"
+                        assistant_content += result
+                except json.JSONDecodeError as e:
+                    error_msg = f"Error parsing JSON args: {str(e)} in {raw_args}"
+                    print(error_msg)  # Log the error
+                    yield f"data: {error_msg}\n\n"
+                except Exception as e:
+                    error_msg = f"Error executing function: {str(e)}"
+                    print(error_msg)  # Log the error
+                    yield f"data: {error_msg}\n\n"
 
         conversation.add_message("assistant", assistant_content)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-async def process_sheet_creation(content, conversation_id, conversation):
-    try:
-
-        title_match = re.search(r'title[:\s]+["\'"]?(.*?)["\'"]?[\s\n]', content, re.IGNORECASE)
-        title = title_match.group(1) if title_match else "Vendor Inventory"
-
-        headers_section = re.search(r'headers?[:\s]+(.*?)(?:\n\n|\[\/ACTION\]|$)', content, re.IGNORECASE | re.DOTALL)
-
-        if headers_section:
-            headers_text = headers_section.group(1)
-            headers = re.findall(r'-\s+(.*?)(?:\n|$)', headers_text)
-
-            if not headers:
-                headers = [h.strip() for h in re.split(r'[,\n]', headers_text) if h.strip()]
-        else:
-            headers = ["Vendor Name", "Services Provided", "Contract Terms",
-                      "Compliance Info", "Usage Criticality", "Status"]
-
-        client = get_sheets_client()
-        result = client.create_sheet(title, headers)
-
-        natural_response = f"I've created a {title} spreadsheet with all the columns you need. You can access it here: {result['url']}"
-
-        conversation.add_message("assistant", natural_response)
-
-    except Exception as e:
-        error_message = f"I couldn't create the spreadsheet: {str(e)}"
-        conversation.add_message("assistant", error_message)
-
-async def process_sheet_creation_sync(content, conversation_id):
-
-
-    title_match = re.search(r'title[:\s]+["\'"]?(.*?)["\'"]?[\s\n]', content, re.IGNORECASE)
-    title = title_match.group(1) if title_match else "Vendor Inventory"
-
-    headers_section = re.search(r'headers?[:\s]+(.*?)(?:\n\n|\[\/ACTION\]|$)', content, re.IGNORECASE | re.DOTALL)
-
-    if headers_section:
-        headers_text = headers_section.group(1)
-        headers = re.findall(r'-\s+(.*?)(?:\n|$)', headers_text)
-        if not headers:
-            headers = [h.strip() for h in re.split(r'[,\n]', headers_text) if h.strip()]
-    else:
-        headers = ["Vendor Name", "Services Provided", "Contract Terms",
-                 "Compliance Info", "Usage Criticality", "Status"]
-
-    client = get_sheets_client()
-    result = client.create_sheet(title, headers)
-
-    if conversation_id in _CONVERSATIONS:
-        conversation = _CONVERSATIONS[conversation_id]
-        if not hasattr(conversation, 'metadata'):
-            conversation.metadata = {}
-        conversation.metadata['spreadsheet_id'] = result['spreadsheet_id']
-
-    return result
 
 def extract_text_from_pdf(file_path):
     with open(file_path, "rb") as file:
@@ -279,3 +452,20 @@ def extract_text_from_pdf(file_path):
         for page in reader.pages:
             text += page.extract_text() + "\n"
         return text
+
+async def fetch_sheets_info(conversation_id):
+    """Gets information about sheets associated with this conversation"""
+    if conversation_id in _CONVERSATIONS:
+        conversation = _CONVERSATIONS[conversation_id]
+
+        # If there's a spreadsheet_id in the metadata
+        if hasattr(conversation, 'metadata') and 'spreadsheet_id' in conversation.metadata:
+            sheet_id = conversation.metadata['spreadsheet_id']
+            sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
+
+            # Add this information as context
+            context_message = f"Current spreadsheet: {sheet_url}"
+            conversation.add_message("system", context_message)
+            return True
+
+    return False

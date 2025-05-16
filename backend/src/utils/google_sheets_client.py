@@ -123,6 +123,87 @@ class GoogleSheetsClient:
             print(f"Error al leer la hoja: {str(e)}")
             return {"error": str(e)}
 
+    def add_row(self, spreadsheet_id, sheet_name, values):
+        """Añade una fila a la hoja de cálculo"""
+        # Obtener el último índice de fila con datos
+        result = self.sheets.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=f"{sheet_name}!A:Z"
+        ).execute()
+
+        values_range = result.get('values', [])
+        next_row = len(values_range) + 1
+
+        # Añadir nueva fila
+        self.sheets.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{sheet_name}!A{next_row}",
+            valueInputOption='RAW',
+            body={'values': [values]}
+        ).execute()
+
+        return {
+            'success': True,
+            'message': f'Row added at position {next_row}',
+            'row': next_row
+        }
+
+    def update_row(self, spreadsheet_id, sheet_name, row_index, values):
+        """Actualiza una fila existente"""
+        self.sheets.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{sheet_name}!A{row_index}",
+            valueInputOption='RAW',
+            body={'values': [values]}
+        ).execute()
+
+        return {
+            'success': True,
+            'message': f'Row {row_index} updated'
+        }
+
+    def add_column(self, spreadsheet_id, sheet_name, column_name):
+        """Añade una nueva columna"""
+        # Obtener información de la hoja
+        sheet_metadata = self.sheets.spreadsheets().get(
+            spreadsheetId=spreadsheet_id
+        ).execute()
+
+        # Encontrar la siguiente columna libre
+        sheets = sheet_metadata.get('sheets', [])
+        for sheet in sheets:
+            if sheet['properties']['title'] == sheet_name:
+                # Añadir encabezado de la nueva columna
+                properties = sheet['properties']
+                num_columns = properties.get('gridProperties', {}).get('columnCount', 0)
+                column_letter = self._index_to_column(num_columns)
+
+                self.sheets.spreadsheets().values().update(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"{sheet_name}!{column_letter}1",
+                    valueInputOption='RAW',
+                    body={'values': [[column_name]]}
+                ).execute()
+
+                return {
+                    'success': True,
+                    'message': f'Column "{column_name}" added at position {column_letter}',
+                    'column': column_letter
+                }
+
+        return {'success': False, 'message': f'Sheet "{sheet_name}" not found'}
+
+    def _index_to_column(self, index):
+        """Convierte índice numérico a letra de columna (A, B, ..., Z, AA, AB, ...)"""
+        result = ""
+        index += 1  # Ajustar a base 1 para coincidencia con Excel/Sheets
+
+        while index > 0:
+            index, remainder = divmod(index - 1, 26)
+            result = chr(65 + remainder) + result
+
+        return result
+
 # Singleton instance getter
 def get_sheets_client():
     return GoogleSheetsClient()
