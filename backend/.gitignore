@@ -54,3 +54,4 @@ docker-compose.override.yml
 # OS specific
 .DS_Store
 Thumbs.db
+credentials.json
