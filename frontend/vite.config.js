@@ -21,5 +21,6 @@ export default defineConfig({
       '@': resolve(__dirname, './src'),
       'react-native': 'react-native-web',
     },
-  }
+  },
+  base: '/Palladium/',
 });

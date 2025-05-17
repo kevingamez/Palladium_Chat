@@ -1,0 +1,11 @@
+{
+    "rewrites": [
+      // 1. Requests to "/Palladium" or "/Palladium/" → serve your root index.html
+      { "source": "/Palladium",    "destination": "/" },
+      { "source": "/Palladium/",   "destination": "/" },
+  
+      // 2. Any "/Palladium/xyz" → serve "/xyz" (so assets/js/css still load)
+      { "source": "/Palladium/:path*", "destination": "/:path*" }
+    ]
+  }
+  
