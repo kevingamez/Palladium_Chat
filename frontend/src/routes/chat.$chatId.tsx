@@ -6,8 +6,6 @@ export const Route = createFileRoute('/chat/$chatId')({
 });
 
 function ChatPage() {
-  // Obtener el chatId de los parámetros
-  const { chatId } = Route.useParams();
 
   return (
     <ChatWindow  />
