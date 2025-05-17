@@ -1,10 +1,8 @@
-import React from 'react';
 import {
   Outlet,
   createRootRoute,
   createRoute,
 } from '@tanstack/react-router';
-import ChatSidebar from './ChatSideBar/ChatSidebar';
 import ChatWindow from './ChatWindow/ChatWindow';
 // Ruta raíz
 export const Route = createRootRoute({
@@ -35,7 +33,6 @@ export const routeTree = Route.addChildren([
 export default function RootLayout() {
   return (
     <div className="flex h-screen bg-[#343541] overflow-hidden">
-      <ChatSidebar />
       <main className="flex-1 relative overflow-hidden">
         <ChatWindow />
         <Outlet />

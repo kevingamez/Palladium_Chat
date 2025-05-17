@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import MessageBubble from '../MessageBubble/MessageBubble';
 import MessageInput from '../MessageInput/MessageInput';
 import './ChatWindow.css';
-import { uploadFilesChatUploadPost, chatStreamWithFilesChatStreamWithFilesPost } from '../../api/sdk.gen';
+import { uploadFilesChatUploadPost } from '../../api/sdk.gen';
 
 const api = {
   getMessages: async (chatId: string) => {

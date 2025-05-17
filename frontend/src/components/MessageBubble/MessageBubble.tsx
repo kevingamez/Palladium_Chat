@@ -12,8 +12,7 @@ type MessageBubbleProps = {
 export default function MessageBubble({
     role,
     content,
-    streaming,
-    files
+    streaming
   }: MessageBubbleProps) {
     // Detectar mensajes de archivos subidos
     const isFileUploadMessage = content.includes('User uploaded files:');

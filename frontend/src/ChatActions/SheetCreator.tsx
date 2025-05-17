@@ -8,8 +8,8 @@ interface SheetCreatorProps {
 }
 
 export const SheetCreator: React.FC<SheetCreatorProps> = ({ onComplete, conversationId }) => {
-  const createSheet = useMutation({
-    mutationFn: async () => {
+  const createSheetMutation = useMutation({
+    mutationFn: async (): Promise<{ url: string }> => {
       const response = await createSheetSheetsCreatePost({
         body: {
           title: "Vendor Consolidation Tracker",
@@ -25,7 +25,7 @@ export const SheetCreator: React.FC<SheetCreatorProps> = ({ onComplete, conversa
         }
       });
       
-      return response.data;
+      return { url: (response.data as { url: string }).url };
     },
     onSuccess: (data) => {
       const responseMessage = `I've created a vendor inventory spreadsheet with all the necessary fields. You can access it here: ${data.url}`;
@@ -38,15 +38,15 @@ export const SheetCreator: React.FC<SheetCreatorProps> = ({ onComplete, conversa
   });
 
   React.useEffect(() => {
-    createSheet.mutate();
+    createSheetMutation.mutate();
   }, []);
 
   return (
     <div className="ai-action-container">
       <div className="action-status">
-        {createSheet.isPending ? (
+        {createSheetMutation.isPending ? (
           <div className="loading-spinner">Creating spreadsheet...</div>
-        ) : createSheet.isError ? (
+        ) : createSheetMutation.isError ? (
           <div className="error-message">Failed to create spreadsheet</div>
         ) : null}
       </div>
