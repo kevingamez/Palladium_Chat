@@ -15,9 +15,12 @@
   "dependencies": {
     "@hey-api/client-fetch": "^0.10.0",
     "@tailwindcss/vite": "^4.0.6",
+    "@tamagui/config": "^1.126.13",
+    "@tamagui/core": "^1.126.13",
     "@tamagui/font-inter": "^1.126.13",
     "@tamagui/shorthands": "^1.126.13",
     "@tamagui/themes": "^1.126.13",
+    "@tamagui/vite-plugin": "^1.126.13",
     "@tanstack/react-query": "^5.76.0",
     "@tanstack/react-router": "^1.114.3",
     "@tanstack/react-router-devtools": "^1.114.3",

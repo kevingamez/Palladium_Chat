@@ -1,42 +1,33 @@
-import {
-  Outlet,
-  createRootRoute,
-  createRoute,
-} from '@tanstack/react-router';
-import ChatWindow from './ChatWindow/ChatWindow';
-// Ruta raíz
-export const Route = createRootRoute({
-  component: RootLayout,
-});
+import { Outlet, useNavigate } from '@tanstack/react-router';
+import { useState, useEffect } from 'react';
+import { XStack, YStack } from 'tamagui';
+import SlideBar from './SlideBar';
 
-// Ruta índice
-const indexRoute = createRoute({
-  getParentRoute: () => Route,
-  path: '/',
-  component: () => <Outlet />,
-});
+export default function Layout() {
+  const navigate = useNavigate();
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
 
-// Ruta de chat
-const chatRoute = createRoute({
-  getParentRoute: () => Route,
-  path: '/chat/$chatId',
-  component: () => <Outlet />,
-});
+  useEffect(() => {
+    const pathMatch = window.location.pathname.match(/\/chat\/(.+)/);
+    if (pathMatch && pathMatch[1]) {
+      setActiveChatId(pathMatch[1]);
+    }
+  }, []);
 
-// Definir árbol de rutas
-export const routeTree = Route.addChildren([
-  indexRoute,
-  chatRoute,
-]);
+  function selectChat(chatId: string) {
+    setActiveChatId(chatId);
+    navigate({ to: '/chat/$chatId', params: { chatId } });
+  }
 
-// Componente de Layout principal
-export default function RootLayout() {
   return (
-    <div className="flex h-screen bg-[#343541] overflow-hidden">
-      <main className="flex-1 relative overflow-hidden">
-        <ChatWindow />
+    <XStack style={{ flex: 1, height: '100vh' }}>
+      <SlideBar
+        activeChatId={activeChatId}
+        onChatSelect={selectChat}
+      />
+      <YStack style={{ flex: 1, backgroundColor: '#121212' }}>
         <Outlet />
-      </main>
-    </div>
+      </YStack>
+    </XStack>
   );
 }

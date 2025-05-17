@@ -12,12 +12,19 @@
 
 import { Route as rootRoute } from './routes/__root'
 import { Route as LayoutImport } from './routes/_layout'
+import { Route as IndexImport } from './routes/index'
 import { Route as ChatChatIdImport } from './routes/chat.$chatId'
 
 // Create/Update Routes
 
 const LayoutRoute = LayoutImport.update({
   id: '/_layout',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const IndexRoute = IndexImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -31,6 +38,13 @@ const ChatChatIdRoute = ChatChatIdImport.update({
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexImport
+      parentRoute: typeof rootRoute
+    }
     '/_layout': {
       id: '/_layout'
       path: ''
@@ -51,36 +65,41 @@ declare module '@tanstack/react-router' {
 // Create and export the route tree
 
 export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
   '': typeof LayoutRoute
   '/chat/$chatId': typeof ChatChatIdRoute
 }
 
 export interface FileRoutesByTo {
+  '/': typeof IndexRoute
   '': typeof LayoutRoute
   '/chat/$chatId': typeof ChatChatIdRoute
 }
 
 export interface FileRoutesById {
   __root__: typeof rootRoute
+  '/': typeof IndexRoute
   '/_layout': typeof LayoutRoute
   '/chat/$chatId': typeof ChatChatIdRoute
 }
 
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '' | '/chat/$chatId'
+  fullPaths: '/' | '' | '/chat/$chatId'
   fileRoutesByTo: FileRoutesByTo
-  to: '' | '/chat/$chatId'
-  id: '__root__' | '/_layout' | '/chat/$chatId'
+  to: '/' | '' | '/chat/$chatId'
+  id: '__root__' | '/' | '/_layout' | '/chat/$chatId'
   fileRoutesById: FileRoutesById
 }
 
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   LayoutRoute: typeof LayoutRoute
   ChatChatIdRoute: typeof ChatChatIdRoute
 }
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   LayoutRoute: LayoutRoute,
   ChatChatIdRoute: ChatChatIdRoute,
 }
@@ -95,9 +114,13 @@ export const routeTree = rootRoute
     "__root__": {
       "filePath": "__root.tsx",
       "children": [
+        "/",
         "/_layout",
         "/chat/$chatId"
       ]
+    },
+    "/": {
+      "filePath": "index.tsx"
     },
     "/_layout": {
       "filePath": "_layout.tsx"

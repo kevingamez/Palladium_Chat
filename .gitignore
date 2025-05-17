@@ -1,3 +1,4 @@
 .history
 .env
 backend/credentials.json
+backend/uploads/*

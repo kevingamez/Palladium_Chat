@@ -2,19 +2,31 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useRef } from 'react';
 import MessageBubble from '../MessageBubble/MessageBubble';
 import MessageInput from '../MessageInput/MessageInput';
-import './ChatWindow.css';
+import { XStack, YStack, Text, ScrollView, View } from 'tamagui';
 import { uploadFilesChatUploadPost } from '../../api/sdk.gen';
 
 const api = {
   getMessages: async (chatId: string) => {
-    const stored = localStorage.getItem(`chat_${chatId}`);
-    return stored ? JSON.parse(stored) : [];
+    try {
+      const stored = localStorage.getItem(`chat_${chatId}`);
+      if (!stored) return [];
+
+      const data = JSON.parse(stored);
+      if (Array.isArray(data)) {
+        return data;
+      } else if (data && typeof data === 'object' && Array.isArray(data.messages)) {
+        return data.messages;
+      }
+      return [];
+    } catch (error) {
+      console.error("Error parsing chat data:", error);
+      return [];
+    }
   },
 
   sendMessageStream: async ({ chatId, text, files }: { chatId: string; text: string; files?: File[] }) => {
     const simulateStream = async function* () {
       try {
-        // Si hay archivos, primero subir los archivos
         if (files && files.length > 0) {
           const formData = new FormData();
           formData.append('conversation_id', chatId);
@@ -22,7 +34,6 @@ const api = {
             formData.append('files', file);
           });
 
-          // Usar el endpoint de carga de archivos
           await uploadFilesChatUploadPost({
             body: {
               conversation_id: chatId,
@@ -31,7 +42,6 @@ const api = {
           });
         }
 
-        // Elegir el endpoint correcto basado en si hay archivos
         const endpoint = files && files.length > 0
           ? 'http://localhost:8000/chat/stream-with-files'
           : 'http://localhost:8000/chat/stream';
@@ -63,7 +73,6 @@ const api = {
             }
           }
         } else {
-          // Respuesta fallback
           yield 'Error al procesar tu mensaje.';
         }
       } catch (error) {
@@ -79,12 +88,10 @@ const api = {
 export default function ChatWindow() {
   const [chatId, setChatId] = useState<string>('');
   const qc = useQueryClient();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<any>(null);
 
-  // Obtener chatId de manera segura
   useEffect(() => {
     try {
-      // Intentar obtener de la URL
       const pathname = window.location.pathname;
       const match = pathname.match(/\/chat\/([^\/]+)/);
       if (match && match[1]) {
@@ -95,26 +102,28 @@ export default function ChatWindow() {
     }
   }, [window.location.pathname]);
 
-  const { data: messages = [] } = useQuery({
+  const { data: messagesData } = useQuery({
     queryKey: ['messages', chatId],
     queryFn: () => api.getMessages(chatId),
     enabled: !!chatId,
   });
 
-  // Auto-scroll cuando hay nuevos mensajes
+  const messages = Array.isArray(messagesData) ? messagesData : [];
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
-  // Enviar mensaje (y recibir respuesta en streaming)
   const sendMsg = useMutation({
     mutationFn: ({ text, files }: { text: string, files?: File[] }) => {
       if (!chatId) return Promise.resolve(null);
 
       const currentMessages = qc.getQueryData(['messages', chatId]) as any[] || [];
+      const safeCurrentMessages = Array.isArray(currentMessages) ? currentMessages : [];
 
-      // Si hay archivos, añade una indicación visual
-      let updatedMessages = [...currentMessages, { role: 'user', content: text }];
+      let updatedMessages = [...safeCurrentMessages, { role: 'user', content: text }];
       if (files && files.length > 0) {
         updatedMessages.push({
           role: 'system',
@@ -128,21 +137,24 @@ export default function ChatWindow() {
     },
     onMutate: async ({ text }) => {
       await qc.cancelQueries({ queryKey: ['messages', chatId] });
-      qc.setQueryData(['messages', chatId], (old: any[] = []) => [
-        ...old,
-        { role: 'user', content: text },
-      ]);
+      qc.setQueryData(['messages', chatId], (old: any[] = []) => {
+        const safeOld = Array.isArray(old) ? old : [];
+        return [
+          ...safeOld,
+          { role: 'user', content: text },
+        ];
+      });
     },
     onSuccess: async (stream) => {
       if (!stream) return;
 
-      // Leer stream y actualizar mensajes
       try {
         let assistantContent = '';
         for await (const chunk of stream) {
           assistantContent += chunk;
           qc.setQueryData(['messages', chatId], (old: any[] = []) => {
-            const updated = [...old];
+            const safeOld = Array.isArray(old) ? old : [];
+            const updated = [...safeOld];
             const assistantIdx = updated.findIndex((m) => m.role === 'assistant' && m.streaming);
             if (assistantIdx === -1) {
               updated.push({ role: 'assistant', content: assistantContent, streaming: true });
@@ -153,9 +165,9 @@ export default function ChatWindow() {
           });
         }
 
-        // Finalizar streaming y guardar
         qc.setQueryData(['messages', chatId], (old: any[] = []) => {
-          const updated = old.map((m) => ({ ...m, streaming: false }));
+          const safeOld = Array.isArray(old) ? old : [];
+          const updated = safeOld.map((m) => ({ ...m, streaming: false }));
           localStorage.setItem(`chat_${chatId}`, JSON.stringify(updated));
           return updated;
         });
@@ -165,62 +177,69 @@ export default function ChatWindow() {
     },
   });
 
-  // Si no hay chatId, mostrar mensaje de bienvenida
   if (!chatId) {
     return (
-      <div className="welcome-container">
-        {/* <h1 className="welcome-title">ChatGPT Clone</h1> */}
-        <p className="welcome-text">
+      <YStack fullscreen backgroundColor="#121212" justifyContent="center" alignItems="center" padding={20}>
+        <Text color="#aaa" fontSize={18} textAlign="center">
           Selecciona un chat existente o crea uno nuevo para comenzar a conversar.
-        </p>
-      </div>
+        </Text>
+      </YStack>
     );
   }
 
   return (
-    <div className="chat-window">
-      <div className="chat-content">
-        <div className="chat-messages">
+    <YStack fullscreen backgroundColor="#121212">
+      <YStack flex={1} paddingTop={16} paddingHorizontal={16}>
+        <ScrollView flex={1} contentContainerStyle={{ flexGrow: 1 }}>
           {messages.length === 0 ? (
-            <div className="chat-empty-state">
-              <h2 className="chat-empty-title">¿Cómo puedo ayudarte hoy?</h2>
-              <div className="chat-suggestions">
-                <div className="suggestion-card">
-                  <h3 className="suggestion-title">Pregúntame sobre...</h3>
-                  <p className="suggestion-text">cualquier tema que necesites investigar</p>
-                </div>
-                <div className="suggestion-card">
-                  <h3 className="suggestion-title">Ayúdame a...</h3>
-                  <p className="suggestion-text">resolver problemas o generar ideas</p>
-                </div>
-              </div>
-            </div>
+            <YStack flex={1} justifyContent="center" alignItems="center" gap={20}>
+              <Text fontSize={24} fontWeight="bold" color="white" marginBottom={20}>
+                ¿Cómo puedo ayudarte hoy?
+              </Text>
+
+              <XStack flexWrap="wrap" gap={16} justifyContent="center">
+                <YStack backgroundColor="#333" paddingVertical={16} paddingHorizontal={20} borderRadius={8} width={250}>
+                  <Text fontSize={18} fontWeight="bold" color="#ddd" marginBottom={8}>
+                    Pregúntame sobre...
+                  </Text>
+                  <Text color="#aaa">
+                    cualquier tema que necesites investigar
+                  </Text>
+                </YStack>
+
+                <YStack backgroundColor="#333" paddingVertical={16} paddingHorizontal={20} borderRadius={8} width={250}>
+                  <Text fontSize={18} fontWeight="bold" color="#ddd" marginBottom={8}>
+                    Ayúdame a...
+                  </Text>
+                  <Text color="#aaa">
+                    resolver problemas o generar ideas
+                  </Text>
+                </YStack>
+              </XStack>
+            </YStack>
           ) : (
-            <div className="message-container">
+            <YStack gap={16}>
               {messages.map((message: any, i: number) => (
                 <MessageBubble
                   key={i}
                   {...message}
-                  // Detecta si es un mensaje de sistema sobre archivos
-                  files={message.role === 'system' && message.content.startsWith('User uploaded files:')
-                    ? message.content.replace('User uploaded files:', '').split(',').map((f: string) => f.trim())
+                  files={message.role === 'system' && message.content.startsWith('Archivos adjuntos:')
+                    ? message.content.replace('Archivos adjuntos:', '').split(',').map((f: string) => f.trim())
                     : undefined}
                 />
               ))}
-              <div ref={messagesEndRef} />
-            </div>
+              <View ref={messagesEndRef} />
+            </YStack>
           )}
-        </div>
-      </div>
+        </ScrollView>
+      </YStack>
 
-      <div className="input-container">
-        <div className="input-wrapper">
-          <MessageInput
-            onSend={(text, files) => sendMsg.mutate({ text, files })}
-            disabled={sendMsg.isPending}
-          />
-        </div>
-      </div>
-    </div>
+      <YStack paddingHorizontal={16} paddingBottom={16} paddingTop={8} borderTopWidth={1} borderColor="#333">
+        <MessageInput
+          onSend={(text, files) => sendMsg.mutate({ text, files })}
+          disabled={sendMsg.isPending}
+        />
+      </YStack>
+    </YStack>
   );
 }
