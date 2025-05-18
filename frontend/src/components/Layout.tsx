@@ -21,11 +21,8 @@ export default function Layout() {
 
   return (
     <XStack style={{ flex: 1, height: '100vh' }}>
-      <SlideBar
-        activeChatId={activeChatId}
-        onChatSelect={selectChat}
-      />
-      <YStack style={{ flex: 1, backgroundColor: '#121212' }}>
+      <SlideBar activeChatId={activeChatId} onChatSelect={selectChat} />
+      <YStack style={{ flex: 1 }}>
         <Outlet />
       </YStack>
     </XStack>

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useRef } from 'react';
 import MessageBubble from './MessageBubble';
-import MessageInput from './MessageInput/MessageInput';
+import MessageInput from './MessageInput';
 import { XStack, YStack, Text, ScrollView, View } from 'tamagui';
 import { uploadFilesChatUploadPost } from '../api/sdk.gen';
 
@@ -19,40 +19,49 @@ const api = {
       }
       return [];
     } catch (error) {
-      console.error("Error parsing chat data:", error);
+      console.error('Error parsing chat data:', error);
       return [];
     }
   },
 
-  sendMessageStream: async ({ chatId, text, files }: { chatId: string; text: string; files?: File[] }) => {
+  sendMessageStream: async ({
+    chatId,
+    text,
+    files,
+  }: {
+    chatId: string;
+    text: string;
+    files?: File[];
+  }) => {
     const simulateStream = async function* () {
       try {
         if (files && files.length > 0) {
           const formData = new FormData();
           formData.append('conversation_id', chatId);
-          files.forEach(file => {
+          files.forEach((file) => {
             formData.append('files', file);
           });
 
           await uploadFilesChatUploadPost({
             body: {
               conversation_id: chatId,
-              files
-            }
+              files,
+            },
           });
         }
 
-        const endpoint = files && files.length > 0
-          ? 'http://localhost:8000/chat/stream-with-files'
-          : 'http://localhost:8000/chat/stream';
+        const endpoint =
+          files && files.length > 0
+            ? 'http://localhost:8000/chat/stream-with-files'
+            : 'http://localhost:8000/chat/stream';
 
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             conversation_id: chatId,
-            content: text
-          })
+            content: text,
+          }),
         });
 
         if (response.ok) {
@@ -82,7 +91,7 @@ const api = {
     };
 
     return simulateStream();
-  }
+  },
 };
 
 export default function ChatWindow() {
@@ -98,7 +107,7 @@ export default function ChatWindow() {
         setChatId(match[1]);
       }
     } catch (error) {
-      console.error("Error getting chatId:", error);
+      console.error('Error getting chatId:', error);
     }
   }, [window.location.pathname]);
 
@@ -117,17 +126,17 @@ export default function ChatWindow() {
   }, [messages]);
 
   const sendMsg = useMutation({
-    mutationFn: ({ text, files }: { text: string, files?: File[] }) => {
+    mutationFn: ({ text, files }: { text: string; files?: File[] }) => {
       if (!chatId) return Promise.resolve(null);
 
-      const currentMessages = qc.getQueryData(['messages', chatId]) as any[] || [];
+      const currentMessages = (qc.getQueryData(['messages', chatId]) as any[]) || [];
       const safeCurrentMessages = Array.isArray(currentMessages) ? currentMessages : [];
 
       let updatedMessages = [...safeCurrentMessages, { role: 'user', content: text }];
       if (files && files.length > 0) {
         updatedMessages.push({
           role: 'system',
-          content: `Attached files: ${files.map(f => f.name).join(', ')}`
+          content: `Attached files: ${files.map((f) => f.name).join(', ')}`,
         });
       }
 
@@ -139,10 +148,7 @@ export default function ChatWindow() {
       await qc.cancelQueries({ queryKey: ['messages', chatId] });
       qc.setQueryData(['messages', chatId], (old: any[] = []) => {
         const safeOld = Array.isArray(old) ? old : [];
-        return [
-          ...safeOld,
-          { role: 'user', content: text },
-        ];
+        return [...safeOld, { role: 'user', content: text }];
       });
     },
     onSuccess: async (stream) => {
@@ -179,7 +185,13 @@ export default function ChatWindow() {
 
   if (!chatId) {
     return (
-      <YStack fullscreen backgroundColor="#FFF" justifyContent="center" alignItems="center" padding={20}>
+      <YStack
+        fullscreen
+        backgroundColor="#FFF"
+        justifyContent="center"
+        alignItems="center"
+        padding={20}
+      >
         <Text color="#aaa" fontSize={18} textAlign="center">
           Select an existing chat or create a new one to start conversing.
         </Text>
@@ -189,7 +201,7 @@ export default function ChatWindow() {
 
   return (
     <YStack fullscreen backgroundColor="#FFF">
-      <YStack flex={1} paddingTop={16} paddingHorizontal={16}>
+      <YStack flex={1} paddingTop={16} paddingHorizontal={30}>
         <ScrollView flex={1} contentContainerStyle={{ flexGrow: 1 }}>
           {messages.length === 0 ? (
             <YStack flex={1} justifyContent="center" alignItems="center" gap={20}>
@@ -198,22 +210,30 @@ export default function ChatWindow() {
               </Text>
 
               <XStack flexWrap="wrap" gap={16} justifyContent="center">
-                <YStack backgroundColor="#333" paddingVertical={16} paddingHorizontal={20} borderRadius={8} width={250}>
+                <YStack
+                  backgroundColor="#333"
+                  paddingVertical={16}
+                  paddingHorizontal={20}
+                  borderRadius={8}
+                  width={250}
+                >
                   <Text fontSize={18} fontWeight="bold" color="#ddd" marginBottom={8}>
                     Ask me about...
                   </Text>
-                  <Text color="#aaa">
-                    any topic you need to research
-                  </Text>
+                  <Text color="#aaa">any topic you need to research</Text>
                 </YStack>
 
-                <YStack backgroundColor="#333" paddingVertical={16} paddingHorizontal={20} borderRadius={8} width={250}>
+                <YStack
+                  backgroundColor="#333"
+                  paddingVertical={16}
+                  paddingHorizontal={20}
+                  borderRadius={8}
+                  width={250}
+                >
                   <Text fontSize={18} fontWeight="bold" color="#ddd" marginBottom={8}>
                     Help me with...
                   </Text>
-                  <Text color="#aaa">
-                    solving problems or generating ideas
-                  </Text>
+                  <Text color="#aaa">solving problems or generating ideas</Text>
                 </YStack>
               </XStack>
             </YStack>
@@ -228,9 +248,14 @@ export default function ChatWindow() {
                   <MessageBubble
                     {...message}
                     maxWidth={message.role === 'assistant' ? '30%' : '44%'}
-                    files={message.role === 'system' && message.content.startsWith('Attached files:')
-                      ? message.content.replace('Attached files:', '').split(',').map((f: string) => f.trim())
-                      : undefined}
+                    files={
+                      message.role === 'system' && message.content.startsWith('Attached files:')
+                        ? message.content
+                            .replace('Attached files:', '')
+                            .split(',')
+                            .map((f: string) => f.trim())
+                        : undefined
+                    }
                   />
                 </YStack>
               ))}
@@ -240,7 +265,7 @@ export default function ChatWindow() {
         </ScrollView>
       </YStack>
 
-      <YStack paddingHorizontal={16} paddingBottom={16} paddingTop={8} borderTopWidth={1} borderColor="#333">
+      <YStack paddingHorizontal={16} paddingBottom={16} paddingTop={8} borderTopWidth={0}>
         <MessageInput
           onSend={(text, files) => sendMsg.mutate({ text, files })}
           disabled={sendMsg.isPending}

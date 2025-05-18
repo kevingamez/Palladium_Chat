@@ -56,9 +56,8 @@ export default function SlideBar({ activeChatId, onChatSelect }: SlideBarProps) 
   return (
     <YStack
       width={250}
-      backgroundColor="#FFF"
-      borderRightWidth={1}
-      borderColor="#333"
+      backgroundColor="#f9f9f9"
+      borderRightWidth={0}
       paddingTop={16}
       paddingRight={16}
       paddingBottom={16}
@@ -92,7 +91,7 @@ export default function SlideBar({ activeChatId, onChatSelect }: SlideBarProps) 
         {chats.map((chat) => (
           <Button
             key={chat.id}
-            backgroundColor={activeChatId === chat.id ? '#333' : 'transparent'}
+            backgroundColor={activeChatId === chat.id ? '#e3e3e3' : 'transparent'}
             paddingTop={12}
             paddingRight={12}
             paddingBottom={12}
@@ -104,7 +103,7 @@ export default function SlideBar({ activeChatId, onChatSelect }: SlideBarProps) 
             justifyContent="flex-start"
             onPress={() => onChatSelect(chat.id)}
           >
-            <Text color="#aaa" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+            <Text color="#494949" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
               {chat.name}
             </Text>
           </Button>
@@ -112,7 +111,7 @@ export default function SlideBar({ activeChatId, onChatSelect }: SlideBarProps) 
 
         {chats.length === 0 && (
           <Text
-            color="#aaa"
+            color="#494949"
             textAlign="center"
             paddingTop={16}
             paddingRight={16}
