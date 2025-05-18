@@ -55,7 +55,7 @@ export default function SlideBar({ activeChatId, onChatSelect }: SlideBarProps) 
 
   return (
     <YStack
-      width={250}
+      width="100%"
       backgroundColor="#f9f9f9"
       borderRightWidth={0}
       paddingTop={16}
