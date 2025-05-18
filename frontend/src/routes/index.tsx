@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { YStack, Text, H1 } from 'tamagui';
+import { YStack, Text } from 'tamagui';
 
 export const Route = createFileRoute('/')({
   component: HomePage,

@@ -1,7 +1,6 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useState, useCallback } from 'react';
 import { YStack, Button, Text, ScrollView } from 'tamagui';
-import { Menu } from '@tamagui/lucide-icons';
 
 interface SlideBarProps {
   readonly activeChatId: string | null;
