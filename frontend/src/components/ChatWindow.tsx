@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useRef } from 'react';
-import MessageBubble from '../MessageBubble/MessageBubble';
-import MessageInput from '../MessageInput/MessageInput';
+import MessageBubble from './MessageBubble';
+import MessageInput from './MessageInput/MessageInput';
 import { XStack, YStack, Text, ScrollView, View } from 'tamagui';
-import { uploadFilesChatUploadPost } from '../../api/sdk.gen';
+import { uploadFilesChatUploadPost } from '../api/sdk.gen';
 
 const api = {
   getMessages: async (chatId: string) => {
@@ -73,11 +73,11 @@ const api = {
             }
           }
         } else {
-          yield 'Error al procesar tu mensaje.';
+          yield 'Error processing your message.';
         }
       } catch (error) {
-        console.error('Error en streaming:', error);
-        yield 'Error al procesar tu mensaje.';
+        console.error('Streaming error:', error);
+        yield 'Error processing your message.';
       }
     };
 
@@ -98,7 +98,7 @@ export default function ChatWindow() {
         setChatId(match[1]);
       }
     } catch (error) {
-      console.error("Error obteniendo chatId:", error);
+      console.error("Error getting chatId:", error);
     }
   }, [window.location.pathname]);
 
@@ -127,7 +127,7 @@ export default function ChatWindow() {
       if (files && files.length > 0) {
         updatedMessages.push({
           role: 'system',
-          content: `Archivos adjuntos: ${files.map(f => f.name).join(', ')}`
+          content: `Attached files: ${files.map(f => f.name).join(', ')}`
         });
       }
 
@@ -172,47 +172,47 @@ export default function ChatWindow() {
           return updated;
         });
       } catch (error) {
-        console.error('Error procesando stream:', error);
+        console.error('Error processing stream:', error);
       }
     },
   });
 
   if (!chatId) {
     return (
-      <YStack fullscreen backgroundColor="#121212" justifyContent="center" alignItems="center" padding={20}>
+      <YStack fullscreen backgroundColor="#FFF" justifyContent="center" alignItems="center" padding={20}>
         <Text color="#aaa" fontSize={18} textAlign="center">
-          Selecciona un chat existente o crea uno nuevo para comenzar a conversar.
+          Select an existing chat or create a new one to start conversing.
         </Text>
       </YStack>
     );
   }
 
   return (
-    <YStack fullscreen backgroundColor="#121212">
+    <YStack fullscreen backgroundColor="#FFF">
       <YStack flex={1} paddingTop={16} paddingHorizontal={16}>
         <ScrollView flex={1} contentContainerStyle={{ flexGrow: 1 }}>
           {messages.length === 0 ? (
             <YStack flex={1} justifyContent="center" alignItems="center" gap={20}>
               <Text fontSize={24} fontWeight="bold" color="white" marginBottom={20}>
-                ¿Cómo puedo ayudarte hoy?
+                How can I help you today?
               </Text>
 
               <XStack flexWrap="wrap" gap={16} justifyContent="center">
                 <YStack backgroundColor="#333" paddingVertical={16} paddingHorizontal={20} borderRadius={8} width={250}>
                   <Text fontSize={18} fontWeight="bold" color="#ddd" marginBottom={8}>
-                    Pregúntame sobre...
+                    Ask me about...
                   </Text>
                   <Text color="#aaa">
-                    cualquier tema que necesites investigar
+                    any topic you need to research
                   </Text>
                 </YStack>
 
                 <YStack backgroundColor="#333" paddingVertical={16} paddingHorizontal={20} borderRadius={8} width={250}>
                   <Text fontSize={18} fontWeight="bold" color="#ddd" marginBottom={8}>
-                    Ayúdame a...
+                    Help me with...
                   </Text>
                   <Text color="#aaa">
-                    resolver problemas o generar ideas
+                    solving problems or generating ideas
                   </Text>
                 </YStack>
               </XStack>
@@ -220,13 +220,19 @@ export default function ChatWindow() {
           ) : (
             <YStack gap={16}>
               {messages.map((message: any, i: number) => (
-                <MessageBubble
+                <YStack
                   key={i}
-                  {...message}
-                  files={message.role === 'system' && message.content.startsWith('Archivos adjuntos:')
-                    ? message.content.replace('Archivos adjuntos:', '').split(',').map((f: string) => f.trim())
-                    : undefined}
-                />
+                  width="100%"
+                  alignItems={message.role === 'user' ? 'flex-end' : 'flex-start'}
+                >
+                  <MessageBubble
+                    {...message}
+                    maxWidth={message.role === 'assistant' ? '30%' : '44%'}
+                    files={message.role === 'system' && message.content.startsWith('Attached files:')
+                      ? message.content.replace('Attached files:', '').split(',').map((f: string) => f.trim())
+                      : undefined}
+                  />
+                </YStack>
               ))}
               <View ref={messagesEndRef} />
             </YStack>
