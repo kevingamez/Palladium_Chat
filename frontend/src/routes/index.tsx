@@ -1,13 +1,22 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { YStack, Text, H1 } from 'tamagui';
 
 export const Route = createFileRoute('/')({
-  component: IndexPage,
+  component: HomePage,
 });
 
-function IndexPage() {
+function HomePage() {
   return (
-    <div>
-      <h1>Index</h1>
-    </div>
+    <YStack
+      flex={1}
+      justifyContent="center"
+      alignItems="center"
+      backgroundColor="#fff"
+      height="100vh"
+    >
+      <Text fontSize={40} fontWeight="bold" marginBottom={16} color="#000">
+        Welcome to Palladium
+      </Text>
+    </YStack>
   );
 }

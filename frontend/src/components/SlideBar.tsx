@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useState, useCallback } from 'react';
 import { YStack, Button, Text, ScrollView } from 'tamagui';
+import { Menu } from '@tamagui/lucide-icons';
 
 interface SlideBarProps {
   readonly activeChatId: string | null;
@@ -55,7 +56,7 @@ export default function SlideBar({ activeChatId, onChatSelect }: SlideBarProps) 
 
   return (
     <YStack
-      width={250}
+      width="100%"
       backgroundColor="#f9f9f9"
       borderRightWidth={0}
       paddingTop={16}
